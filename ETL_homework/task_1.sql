@@ -1,0 +1,101 @@
+/* ******************************************************************************************************************************
+ * 
+ * Scenario 1: SCD1 and SCD2 incremental data processing
+ *     
+ ****************************************************************************************************************************** */
+
+------------------------------------------------------------------------------------------------------------------
+-- Initialization
+------------------------------------------------------------------------------------------------------------------
+drop table if exists #dim_customer;
+
+create table #dim_customer(
+    customer_sk int not null identity primary key,
+    customer_bk varchar(255),
+    full_name  varchar(255),   -- SCD1 attribure
+    country varchar(255),      -- SCD2 attribure
+    state_region varchar(255), -- SCD2 attribure
+    valid_from datetime2,
+    valid_to datetime2
+);
+
+truncate table #dim_customer;
+insert into #dim_customer(customer_bk, full_name, country, state_region, valid_from, valid_to) 
+values 
+('us101', 'Lori Smith', 'US', 'Texas', '1900-01-01','9999-12-31 23:59:59'),
+('uk101', 'Ivan Kohut', 'Ukraine', 'Lviv', '1900-01-01','2020-10-31 23:59:59'),
+('uk101', 'Ivan Kohut', 'Ukraine', 'Kyiv', '2020-11-01','9999-12-31 23:59:59'),
+('uk102', 'Oksana Lysytsia', 'Ukraine', 'Ternopil', '1900-01-01','9999-12-31 23:59:59'),
+('uk103', 'Iryna Vovk', 'Ukraine', 'Ivano-Frankivsk', '1900-01-01','9999-12-31 23:59:59');
+
+
+drop table if exists #stg_customer;
+create table #stg_customer(
+    customer_bk varchar(255) primary key,
+    full_name  varchar(255),
+    country varchar(255),
+    state_region varchar(255)
+);
+truncate table #stg_customer;
+insert into #stg_customer(customer_bk, full_name, country, state_region) 
+values 
+('us101', 'Lorelei Smith', 'US', 'Texas'), 
+('us102', 'Chris Black', 'US', 'California'),
+('uk101', 'Ivan Kohut-Baran', 'Ukraine', 'Irpin'),
+('uk102', 'Oksana Lysytsia-Vovk', 'Ukraine', 'Ternopil'),
+('uk103', 'Iryna Vovk', 'Ukraine', 'Ivano-Frankivsk');
+
+
+
+/* ******************************************************************************************************************************
+ * Exersize #1:
+ * Prepare a SQL script (sequence of SQL statements) to implement the merging of the #stg_customer (increment of the customer data) 
+ * into the target #dim_customer dimension table  
+ ****************************************************************************************************************************** */
+
+declare @now DATETIME2(0) = SYSDATETIME();
+declare @max_date DATETIME2(0) = '9999-12-31 23:59:59';
+
+/* 1. close out data that was changed (if country or state_region were changed)
+* row becomes inactive
+*/
+
+update #dim_customer
+set #dim_customer.valid_to = @now
+from #dim_customer
+inner JOIN #stg_customer
+on #dim_customer.customer_bk = #stg_customer.customer_bk
+where valid_to = @max_date
+and (#dim_customer.country <> #stg_customer.country
+OR #dim_customer.state_region <> #stg_customer.state_region)
+
+select * from #dim_customer
+
+/* 2. add new customers (new = inactive) */
+
+insert into #dim_customer (customer_bk, full_name, country, state_region, valid_from, valid_to)
+select 
+    #stg_customer.customer_bk, 
+    #stg_customer.full_name, 
+    #stg_customer.country, 
+    #stg_customer.state_region, 
+    @now, 
+    @max_date 
+from #stg_customer
+left join #dim_customer 
+    on #dim_customer.customer_bk = #stg_customer.customer_bk
+    and #dim_customer.valid_to = @max_date
+where #dim_customer.customer_bk is null;
+
+select * from #dim_customer
+
+/* 3. update names (if any updates) */
+
+update #dim_customer
+set #dim_customer.full_name = #stg_customer.full_name
+from #dim_customer
+inner JOIN #stg_customer
+on #dim_customer.customer_bk = #stg_customer.customer_bk
+where #dim_customer.full_name <> #stg_customer.full_name
+
+select * from #dim_customer
