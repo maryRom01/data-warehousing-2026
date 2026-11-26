@@ -1,0 +1,1 @@
+https://github.com/maryRom01/data-warehousing-2026/blob/main/ETL_homework/task_1.sql
